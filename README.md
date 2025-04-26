@@ -1,6 +1,6 @@
 # Data API Alternative (Go Version)
 
-This is a Go implementation of the Data API server with MongoDB integration and API key authentication.
+This is work in progress for a Go implementation of the Data API server with MongoDB integration and API key authentication.
 
 ## Features
 
