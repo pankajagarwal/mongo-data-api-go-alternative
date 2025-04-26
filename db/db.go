@@ -24,10 +24,9 @@ func Connect() error {
 
 	// Create a new client and connect to the server
 	clientOptions := options.Client().ApplyURI(uri)
-	clientOptions.SetServerAPIOptions(options.ServerAPI(options.ServerAPIVersion1))
 
 	var err error
-	client, err = mongo.Connect(ctx, clientOptions)
+	client, err = mongo.Connect(clientOptions)
 	if err != nil {
 		return err
 	}

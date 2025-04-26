@@ -7,8 +7,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
-	"data-api-alternative-go/db"
-	"data-api-alternative-go/handlers"
+	"mongo-data-api-go-alternative/db"
+	"mongo-data-api-go-alternative/handlers"
 )
 
 func main() {
