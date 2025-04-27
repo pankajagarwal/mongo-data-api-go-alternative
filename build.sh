@@ -10,7 +10,7 @@ docker buildx create --use --name multiarch_builder || docker buildx use multiar
 
 # Build and push the multi-arch image
 docker buildx build \
-  --platform linux/amd64,linux/arm64,linux/arm/v7 \
+  --platform linux/amd64,linux/arm64 \
   -t ${IMAGE_NAME}:${IMAGE_TAG} \
   --push \
   .

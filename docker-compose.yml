@@ -7,24 +7,33 @@ services:
       - "3000:3000"
     environment:
       - MONGO_URI=mongodb://mongodb:27017
-      - API_KEY=your_api_key
+      - API_KEY=test_key
+      - PORT=3000
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     networks:
       - app-network
 
   mongodb:
     image: mongo:latest
+    user: mongodb
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
     networks:
       - app-network
+    command: mongod --bind_ip_all
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
 
 networks:
   app-network:
     driver: bridge
 
 volumes:
-  mongodb_data: 
+  mongodb_data:

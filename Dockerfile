@@ -3,7 +3,7 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-# Copy go mod
+# Copy go mod and sum files
 COPY go.mod go.sum ./
 
 # Download dependencies
@@ -19,6 +19,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o main .
 FROM alpine:latest
 
 WORKDIR /app
+
+# Install ca-certificates
+RUN apk --no-cache add ca-certificates
 
 # Copy the binary from builder
 COPY --from=builder /app/main .

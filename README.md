@@ -21,7 +21,6 @@ This is work in progress for a Go implementation of the Data API server with Mon
    ```bash
    export PORT=3000
    export API_KEY=your_api_key_here
-   export API_SECRET=your_api_secret_here
    export MONGO_URI=mongodb://localhost:27017
    ```
 4. Install dependencies:
@@ -39,7 +38,6 @@ This is work in progress for a Go implementation of the Data API server with Mon
 2. Set the following environment variables:
    ```bash
    export API_KEY=your_api_key_here
-   export API_SECRET=your_api_secret_here
    ```
 3. Build and start the containers:
    ```bash
@@ -73,18 +71,45 @@ curl http://127.0.0.1:3000/metrics -H "apiKey: your_api_key"
 
 #### Insert One Document
 ```
-curl -X POST http://127.0.0.1:3000/api/insertOne -H "Content-Type: application/json" -H "apiKey: your_api_key" -d '{"database": "your_database", "collection": "your_collection", "document": {"field1": "value1", "field2": "value2"}}'
+curl -X POST http://127.0.0.1:3000/api/insertOne -H "Content-Type: application/json" -H "apiKey: test_key" -d '{"database": "your_database", "collection": "your_collection", "document": {"field1": "value1", "field2": "value2"}}'
 ```
 
 #### Find One Document
 ```
-curl -X POST http://127.0.0.1:3000/api/findOne -H "Content-Type: application/json" -H "apiKey: your_api_key" -d '{"database": "your_database", "collection": "your_collection", "filter": {"field1": "value1"}}'
+curl -X POST http://127.0.0.1:3000/api/findOne -H "Content-Type: application/json" -H "apiKey: test_key" -d '{"database": "your_database", "collection": "your_collection", "filter": {"field1": "value1"}}'
 ```
 
 #### Delete One Document
 ```
-curl -X POST http://127.0.0.1:3000/api/deleteOne -H "Content-Type: application/json" -H "apiKey: your_api_key" -d '{"database": "your_database", "collection": "your_collection", "filter": {"field1": "value1"}}'
+curl -X POST http://127.0.0.1:3000/api/deleteOne -H "Content-Type: application/json" -H "apiKey: test_key" -d '{"database": "your_database", "collection": "your_collection", "filter": {"field1": "value1"}}'
 ```
+
+#### Aggregate
+```
+curl -s "http://127.0.0.1:3000/api/aggregate" \
+  -X POST -H "apiKey: test_key -H 'Content-Type: application/ejson' -H "Accept: application/json" -d '{
+    "dataSource": "mongodb-atlas",
+    "database": "your_database",
+    "collection": "your_collection",
+    "pipeline": [
+      {
+        "$match": { "field1": "value1" }
+      },
+      {
+        "$group": {
+          "_id": "$status",
+          "count": { "$sum": 1 },
+          "tasks": { "$push": "$text" }
+        }
+      },
+      {
+        "$sort": { "count": -1 }
+      }
+    ]
+  }'
+
+```
+
 
 ## Error Responses
 

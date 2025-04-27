@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -22,7 +23,7 @@ type Document struct {
 	Projection map[string]interface{}   `json:"projection"`
 	Sort       map[string]interface{}   `json:"sort"`
 	Limit      int64                    `json:"limit"`
-	Pipeline   []bson.M                `json:"pipeline"`
+	Pipeline   []map[string]interface{} `json:"pipeline"`
 }
 
 // InsertOne handles document insertion
@@ -130,19 +131,87 @@ func DeleteOne(c *fiber.Ctx) error {
 func Aggregate(c *fiber.Ctx) error {
 	var doc Document
 	if err := c.BodyParser(&doc); err != nil {
+		log.Printf("Error parsing request body: %v", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	log.Printf("Received request for database: %s, collection: %s", doc.Database, doc.Collection)
+	log.Printf("Original pipeline: %+v", doc.Pipeline)
+
 	collection := db.GetCollection(doc.Database, doc.Collection)
-	cursor, err := collection.Aggregate(context.Background(), doc.Pipeline)
+
+	// Convert the pipeline to proper MongoDB format
+	var pipeline mongo.Pipeline
+	for i, stage := range doc.Pipeline {
+		// Convert each stage to bson.D
+		stageDoc := bson.D{}
+		for key, value := range stage {
+			switch key {
+			case "$match":
+				if match, ok := value.(map[string]interface{}); ok {
+					if id, ok := match["_id"].(map[string]interface{}); ok {
+						if oid, ok := id["$oid"].(string); ok {
+							objectId, err := bson.ObjectIDFromHex(oid)
+							if err != nil {
+								log.Printf("Error converting ObjectId: %v", err)
+								return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+							}
+							stageDoc = append(stageDoc, bson.E{Key: "$match", Value: bson.D{
+								{Key: "_id", Value: objectId},
+							}})
+							log.Printf("Stage %d - Match with ObjectId: %v", i, objectId)
+						}
+					}
+				}
+			case "$lookup":
+				if lookup, ok := value.(map[string]interface{}); ok {
+					stageDoc = append(stageDoc, bson.E{Key: "$lookup", Value: bson.D{
+						{Key: "from", Value: lookup["from"]},
+						{Key: "localField", Value: lookup["localField"]},
+						{Key: "foreignField", Value: lookup["foreignField"]},
+						{Key: "as", Value: lookup["as"]},
+					}})
+					log.Printf("Stage %d - Lookup: from=%s, localField=%s, foreignField=%s, as=%s", 
+						i, lookup["from"], lookup["localField"], lookup["foreignField"], lookup["as"])
+				}
+			case "$project":
+				if project, ok := value.(map[string]interface{}); ok {
+					projectDoc := bson.D{}
+					for field, val := range project {
+						projectDoc = append(projectDoc, bson.E{Key: field, Value: val})
+					}
+					stageDoc = append(stageDoc, bson.E{Key: "$project", Value: projectDoc})
+					log.Printf("Stage %d - Project: %+v", i, projectDoc)
+				}
+			}
+		}
+		if len(stageDoc) > 0 {
+			pipeline = append(pipeline, stageDoc)
+		}
+	}
+
+	// Log the final aggregation pipeline for debugging
+	log.Printf("Final MongoDB pipeline: %+v", pipeline)
+	log.Printf("Collection: %s", doc.Collection)
+
+	// Pass the modified pipeline to Aggregate
+	cursor, err := collection.Aggregate(context.Background(), pipeline)
 	if err != nil {
+		log.Printf("Aggregation error: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	defer cursor.Close(context.Background())
 
+	// Fetch and return the results
 	var results []bson.M
 	if err = cursor.All(context.Background(), &results); err != nil {
+		log.Printf("Error reading results: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	log.Printf("Number of results: %d", len(results))
+	if len(results) > 0 {
+		log.Printf("First result: %+v", results[0])
 	}
 
 	return c.JSON(results)
