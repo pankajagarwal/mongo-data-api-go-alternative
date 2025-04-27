@@ -57,13 +57,14 @@ func main() {
 		})
 
 		// MongoDB operations
-		api.Put("/insertOne", handlers.InsertOne)
+		api.Post("/insertOne", handlers.InsertOne)
 		api.Post("/insertMany", handlers.InsertMany)
-		api.Get("/findOne", handlers.FindOne)
-		api.Get("/find", handlers.Find)
-		api.Patch("/updateOne", handlers.UpdateOne)
-		api.Delete("/deleteOne", handlers.DeleteOne)
-		api.Delete("/deleteMany", handlers.DeleteMany)
+		api.Post("/findOne", handlers.FindOne)
+		api.Post("/find", handlers.Find)
+		api.Post("/updateOne", handlers.UpdateOne)
+		api.Post("/updateMany", handlers.UpdateMany)
+		api.Post("/deleteOne", handlers.DeleteOne)
+		api.Post("/deleteMany", handlers.DeleteMany)
 		api.Post("/aggregate", handlers.Aggregate)
 	}
 

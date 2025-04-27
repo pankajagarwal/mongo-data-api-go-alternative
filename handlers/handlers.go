@@ -174,4 +174,24 @@ func DeleteMany(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"deletedCount": result.DeletedCount})
+}
+
+// UpdateMany handles multiple document updates
+func UpdateMany(c *fiber.Ctx) error {
+	var doc Document
+	if err := c.BodyParser(&doc); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	collection := db.GetCollection(doc.Database, doc.Collection)
+	result, err := collection.UpdateMany(context.Background(), doc.Filter, doc.Update)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"matchedCount":  result.MatchedCount,
+		"modifiedCount": result.ModifiedCount,
+		"upsertedCount": result.UpsertedCount,
+	})
 } 

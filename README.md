@@ -69,20 +69,12 @@ GET /api/health
 
 #### Insert One Document
 ```
-POST /api/insertOne
-{
-    "database": "your_database",
-    "collection": "your_collection",
-    "document": {
-        "field1": "value1",
-        "field2": "value2"
-    }
-}
+curl -X POST http://127.0.0.1:3000/api/insertOne   -H "Content-Type: application/json"   -H "X-API-Key: your_api_key"   -H "X-API-Secret: your_api_secret"   -d '{"database": "your_database", "collection": "your_collection", "document": {"field1": "value1", "field2": "value2"}}'
 ```
 
 #### Find One Document
 ```
-POST /api/findOne
+GET /api/findOne
 {
     "database": "your_database",
     "collection": "your_collection",
