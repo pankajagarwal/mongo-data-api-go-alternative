@@ -3,12 +3,14 @@ package main
 import (
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"mongo-data-api-go-alternative/db"
 	"mongo-data-api-go-alternative/handlers"
+	"mongo-data-api-go-alternative/metrics"
 )
 
 func main() {
@@ -29,12 +31,11 @@ func main() {
 
 	// API Key Authentication Middleware
 	app.Use(func(c *fiber.Ctx) error {
-		apiKey := c.Get("X-API-Key")
-		apiSecret := c.Get("X-API-Secret")
+		apiKey := c.Get("apiKey")
 
-		if apiKey != os.Getenv("API_KEY") || apiSecret != os.Getenv("API_SECRET") {
+		if apiKey != os.Getenv("API_KEY") {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-				"message": "Forbidden: Invalid API Key or Secret",
+				"message": "Forbidden: Invalid API Key ",
 			})
 		}
 
@@ -47,6 +48,23 @@ func main() {
 		)
 
 		return c.Next()
+	})
+
+	// Metrics middleware
+	app.Use(func(c *fiber.Ctx) error {
+		start := time.Now()
+		err := c.Next()
+		duration := time.Since(start).Seconds()
+
+		// Record HTTP metrics
+		metrics.RecordHTTPRequest(
+			c.Method(),
+			c.Path(),
+			strconv.Itoa(c.Response().StatusCode()),
+			duration,
+		)
+
+		return err
 	})
 
 	// API Routes
@@ -67,6 +85,9 @@ func main() {
 		api.Post("/deleteMany", handlers.DeleteMany)
 		api.Post("/aggregate", handlers.Aggregate)
 	}
+
+	// Metrics endpoint
+	app.Get("/metrics", metrics.Handler())
 
 	// Start server
 	port := os.Getenv("PORT")

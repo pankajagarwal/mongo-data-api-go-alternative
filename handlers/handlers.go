@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"context"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"mongo-data-api-go-alternative/db"
+	"mongo-data-api-go-alternative/metrics"
 )
 
 type Document struct {
@@ -25,6 +27,7 @@ type Document struct {
 
 // InsertOne handles document insertion
 func InsertOne(c *fiber.Ctx) error {
+	start := time.Now()
 	var doc Document
 	if err := c.BodyParser(&doc); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
@@ -32,6 +35,11 @@ func InsertOne(c *fiber.Ctx) error {
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
 	result, err := collection.InsertOne(context.Background(), doc.Document)
+	duration := time.Since(start).Seconds()
+
+	// Record MongoDB operation metrics
+	metrics.RecordMongoOperation("insertOne", doc.Database, doc.Collection, duration, err)
+
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}

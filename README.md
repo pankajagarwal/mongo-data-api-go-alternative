@@ -5,7 +5,7 @@ This is work in progress for a Go implementation of the Data API server with Mon
 ## Features
 
 - MongoDB CRUD operations
-- API key and secret authentication
+- API key authentication
 - Request logging
 - Environment variable configuration
 - Health check endpoint
@@ -57,8 +57,7 @@ This is work in progress for a Go implementation of the Data API server with Mon
 ## API Usage
 
 All API endpoints require the following headers:
-- `X-API-Key`: Your API key
-- `X-API-Secret`: Your API secret
+- `apiKey`: Your API key
 
 ### Health Check
 ```
@@ -67,101 +66,29 @@ GET /api/health
 
 ### MongoDB Operations
 
+#### Metrics
+```
+curl http://127.0.0.1:3000/metrics -H "apiKey: your_api_key"
+```
+
 #### Insert One Document
 ```
-curl -X POST http://127.0.0.1:3000/api/insertOne   -H "Content-Type: application/json"   -H "X-API-Key: your_api_key"   -H "X-API-Secret: your_api_secret"   -d '{"database": "your_database", "collection": "your_collection", "document": {"field1": "value1", "field2": "value2"}}'
+curl -X POST http://127.0.0.1:3000/api/insertOne -H "Content-Type: application/json" -H "apiKey: your_api_key" -d '{"database": "your_database", "collection": "your_collection", "document": {"field1": "value1", "field2": "value2"}}'
 ```
 
 #### Find One Document
 ```
-GET /api/findOne
-{
-    "database": "your_database",
-    "collection": "your_collection",
-    "filter": {
-        "field": "value"
-    },
-    "projection": {
-        "field1": 1,
-        "field2": 1
-    }
-}
-```
-
-#### Find Multiple Documents
-```
-POST /api/find
-{
-    "database": "your_database",
-    "collection": "your_collection",
-    "filter": {
-        "field": "value"
-    },
-    "projection": {
-        "field1": 1,
-        "field2": 1
-    },
-    "sort": {
-        "field": 1
-    },
-    "limit": 10
-}
-```
-
-#### Update One Document
-```
-POST /api/updateOne
-{
-    "database": "your_database",
-    "collection": "your_collection",
-    "filter": {
-        "field": "value"
-    },
-    "update": {
-        "$set": {
-            "field": "new_value"
-        }
-    }
-}
+curl -X POST http://127.0.0.1:3000/api/findOne -H "Content-Type: application/json" -H "apiKey: your_api_key" -d '{"database": "your_database", "collection": "your_collection", "filter": {"field1": "value1"}}'
 ```
 
 #### Delete One Document
 ```
-POST /api/deleteOne
-{
-    "database": "your_database",
-    "collection": "your_collection",
-    "filter": {
-        "field": "value"
-    }
-}
-```
-
-#### Aggregate Documents
-```
-POST /api/aggregate
-{
-    "database": "your_database",
-    "collection": "your_collection",
-    "pipeline": [
-        {
-            "$match": {
-                "field": "value"
-            }
-        },
-        {
-            "$group": {
-                "_id": "$field",
-                "count": { "$sum": 1 }
-            }
-        }
-    ]
-}
+curl -X POST http://127.0.0.1:3000/api/deleteOne -H "Content-Type: application/json" -H "apiKey: your_api_key" -d '{"database": "your_database", "collection": "your_collection", "filter": {"field1": "value1"}}'
 ```
 
 ## Error Responses
 
 - 400 Bad Request: Invalid request body
-- 403 Forbidden: Invalid API key or secret
+- 403 Forbidden: Invalid API key
 - 404 Not Found: Document not found
 - 500 Internal Server Error: Server error
