@@ -31,6 +31,11 @@ func main() {
 
 	// API Key Authentication Middleware
 	app.Use(func(c *fiber.Ctx) error {
+		// Skip API key check for health and metrics endpoints
+		if c.Path() == "/api/health" || c.Path() == "/metrics" {
+			return c.Next()
+		}
+
 		apiKey := c.Get("apiKey")
 
 		if apiKey != os.Getenv("API_KEY") {
