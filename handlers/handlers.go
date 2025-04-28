@@ -82,13 +82,18 @@ func InsertOne(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Wrap the result in a map to serialize
+	wrappedResult := map[string]interface{}{
+		"insertedId": result.InsertedID,
+	}
+
 	// Serialize the result before returning
-	serializedResult, err := serializeOutput(result.InsertedID)
+	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
 	}
 
-	return c.JSON(fiber.Map{"insertedId": serializedResult})
+	return c.JSON(serializedResult)
 }
 
 // InsertMany handles inserting multiple documents
@@ -114,13 +119,18 @@ func InsertMany(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Wrap the result in a map to serialize
+	wrappedResult := map[string]interface{}{
+		"insertedIds": result.InsertedIDs,
+	}
+
 	// Serialize the result before returning
-	serializedResult, err := serializeOutput(result.InsertedIDs)
+	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
 	}
 
-	return c.JSON(fiber.Map{"insertedIds": serializedResult})
+	return c.JSON(serializedResult)
 }
 
 // FindOne handles single document retrieval
@@ -152,13 +162,18 @@ func FindOne(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Wrap the result in a map to serialize
+	wrappedResult := map[string]interface{}{
+		"document": result,
+	}
+
 	// Serialize the result before returning
-	serializedResult, err := serializeOutput(result)
+	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
 	}
 
-	return c.JSON(fiber.Map{"document": serializedResult})
+	return c.JSON(serializedResult)
 }
 
 // Find handles multiple document retrieval
@@ -192,13 +207,18 @@ func Find(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Wrap the results in a map to serialize
+	wrappedResults := map[string]interface{}{
+		"documents": results,
+	}
+
 	// Serialize the results before returning
-	serializedResults, err := serializeOutput(results)
+	serializedResults, err := serializeOutput(wrappedResults)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize results"})
 	}
 
-	return c.JSON(fiber.Map{"documents": serializedResults})
+	return c.JSON(serializedResults)
 }
 
 // UpdateOne handles updating a single document
@@ -225,13 +245,18 @@ func UpdateOne(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Wrap the result in a map to serialize
+	wrappedResult := map[string]interface{}{
+		"result": result,
+	}
+
 	// Serialize the result before returning
-	serializedResult, err := serializeOutput(result)
+	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
 	}
 
-	return c.JSON(fiber.Map{"result": serializedResult})
+	return c.JSON(serializedResult)
 }
 
 // UpdateMany handles updating multiple documents
@@ -258,13 +283,18 @@ func UpdateMany(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Wrap the result in a map to serialize
+	wrappedResult := map[string]interface{}{
+		"result": result,
+	}
+
 	// Serialize the result before returning
-	serializedResult, err := serializeOutput(result)
+	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
 	}
 
-	return c.JSON(fiber.Map{"result": serializedResult})
+	return c.JSON(serializedResult)
 }
 
 // DeleteOne handles deleting a single document
@@ -286,13 +316,18 @@ func DeleteOne(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Wrap the result in a map to serialize
+	wrappedResult := map[string]interface{}{
+		"result": result,
+	}
+
 	// Serialize the result before returning
-	serializedResult, err := serializeOutput(result)
+	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
 	}
 
-	return c.JSON(fiber.Map{"result": serializedResult})
+	return c.JSON(serializedResult)
 }
 
 // DeleteMany handles deleting multiple documents
@@ -314,13 +349,18 @@ func DeleteMany(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Wrap the result in a map to serialize
+	wrappedResult := map[string]interface{}{
+		"result": result,
+	}
+
 	// Serialize the result before returning
-	serializedResult, err := serializeOutput(result)
+	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
 	}
 
-	return c.JSON(fiber.Map{"result": serializedResult})
+	return c.JSON(serializedResult)
 }
 
 // Aggregate handles aggregation pipeline operations
@@ -334,29 +374,43 @@ func Aggregate(c *fiber.Ctx) error {
 	// Deserialize the pipeline
 	deserializedPipeline, err := deserializeInput(doc.Pipeline)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize pipeline"})
+		log.Printf("Failed to deserialize pipeline: %v", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize pipeline", "details": err.Error()})
 	}
+
+	// log.Printf("Deserialized Pipeline: %+v", deserializedPipeline)
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
 
+	// Execute the aggregation
 	cursor, err := collection.Aggregate(context.Background(), deserializedPipeline)
 	if err != nil {
 		log.Printf("Aggregation error: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Aggregation failed", "details": err.Error()})
 	}
 	defer cursor.Close(context.Background())
 
+	// Read the results
 	var results []bson.M
 	if err = cursor.All(context.Background(), &results); err != nil {
-		log.Printf("Error reading results: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		log.Printf("Error reading aggregation results: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to read aggregation results", "details": err.Error()})
+	}
+
+	// log.Printf("Aggregation Results: %+v", results)
+
+	// Wrap the results in a map to serialize
+	wrappedResults := map[string]interface{}{
+		"documents": results,
 	}
 
 	// Serialize the results before returning
-	serializedResults, err := serializeOutput(results)
+	serializedResults, err := serializeOutput(wrappedResults)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize results"})
+		log.Printf("Failed to serialize results: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize results", "details": err.Error()})
 	}
+	// log.Printf("serializedResults: %+v", serializedResults)
 
-	return c.JSON(fiber.Map{"documents": serializedResults})
+	return c.JSON(serializedResults)
 }

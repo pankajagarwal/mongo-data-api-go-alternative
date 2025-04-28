@@ -6,11 +6,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/logger"
 	"mongo-data-api-go-alternative/db"
 	"mongo-data-api-go-alternative/handlers"
 	"mongo-data-api-go-alternative/metrics"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/logger"
 )
 
 func main() {
@@ -45,28 +46,41 @@ func main() {
 		}
 
 		// Log request details
-		log.Printf("Method: %s, URL: %s, Body: %v, Headers: %v",
-			c.Method(),
-			c.OriginalURL(),
-			c.Body(),
-			c.GetReqHeaders(),
-		)
+		// log.Printf("Method: %s, URL: %s, Body: %v, Headers: %v",
+		// 	c.Method(),
+		// 	c.OriginalURL(),
+		// 	c.Body(),
+		// 	c.GetReqHeaders(),
+		// )
 
 		return c.Next()
 	})
 
-	// Metrics middleware
+	// Metrics middleware with conditional logging
 	app.Use(func(c *fiber.Ctx) error {
 		start := time.Now()
 		err := c.Next()
-		duration := time.Since(start).Seconds()
+		duration := time.Since(start).Milliseconds() // Measure duration in milliseconds
+
+		// Log only if the response time exceeds 1000ms or the status code is not 200
+		statusCode := c.Response().StatusCode()
+		if duration > 1000 || statusCode != fiber.StatusOK {
+			log.Printf("Method: %s, URL: %s, Status: %d, Duration: %dms, Body: %v, Headers: %v",
+				c.Method(),
+				c.OriginalURL(),
+				statusCode,
+				duration,
+				string(c.Body()), // Convert body to string for logging
+				c.GetReqHeaders(),
+			)
+		}
 
 		// Record HTTP metrics
 		metrics.RecordHTTPRequest(
 			c.Method(),
 			c.Path(),
-			strconv.Itoa(c.Response().StatusCode()),
-			duration,
+			strconv.Itoa(statusCode),
+			float64(duration)/1000.0, // Convert duration to seconds for metrics
 		)
 
 		return err
@@ -100,4 +114,4 @@ func main() {
 		port = "3000"
 	}
 	log.Fatal(app.Listen(":" + port))
-} 
+}
