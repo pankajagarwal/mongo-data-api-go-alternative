@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"mongo-data-api-go-alternative/db"
@@ -129,48 +131,89 @@ func DeleteOne(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"deletedCount": result.DeletedCount})
 }
 
-// fix $oid to objectid's and $numberDouble to float64
-func fixBsonDoc(input interface{}) (interface{}, error) {
-	switch v := input.(type) {
-	case []interface{}:
-		for i, elem := range v {
-			fixedElem, err := fixBsonDoc(elem)
-			if err != nil {
-				return nil, err
-			}
-			v[i] = fixedElem
-		}
-		return v, nil
-	case []map[string]interface{}:
-		for i, elem := range v {
-			fixedElem, err := fixBsonDoc(elem)
-			if err != nil {
-				return nil, err
-			}
-			v[i] = fixedElem.(map[string]interface{})
-		}
-		return v, nil
+func fixBsonValue(value interface{}) (interface{}, error) {
+	switch v := value.(type) {
 	case map[string]interface{}:
-		if oid, ok := v["$oid"]; ok {
-			if oidStr, ok := oid.(string); ok {
-				objID, err := primitive.ObjectIDFromHex(oidStr)
+		// Check for special MongoDB extended JSON types
+		if len(v) == 1 {
+			if oid, ok := v["$oid"]; ok {
+				if oidStr, ok := oid.(string); ok {
+					objectID, err := primitive.ObjectIDFromHex(oidStr)
+					if err != nil {
+						return nil, err
+					}
+					return objectID, nil
+				}
+			}
+			if numberDouble, ok := v["$numberDouble"]; ok {
+				if numStr, ok := numberDouble.(string); ok {
+					parsed, err := strconv.ParseFloat(numStr, 64)
+					if err != nil {
+						return nil, err
+					}
+					return parsed, nil
+				}
+			}
+			if date, ok := v["$date"]; ok {
+				if dateStr, ok := date.(string); ok {
+					parsedTime, err := time.Parse(time.RFC3339, dateStr)
+					if err != nil {
+						return nil, err
+					}
+					return parsedTime, nil
+				}
+			}
+		}
+		// Otherwise recursively fix inner maps
+		fixedMap := make(map[string]interface{})
+		for key, innerVal := range v {
+			fixedInnerVal, err := fixBsonValue(innerVal)
+			if err != nil {
+				return nil, err
+			}
+			fixedMap[key] = fixedInnerVal
+		}
+		return fixedMap, nil
+
+	case []interface{}:
+		var fixedArr []interface{}
+		for _, item := range v {
+			fixedItem, err := fixBsonValue(item)
+			if err != nil {
+				return nil, err
+			}
+			fixedArr = append(fixedArr, fixedItem)
+		}
+		return fixedArr, nil
+
+	default:
+		return value, nil
+	}
+}
+
+// fix $oid to objectid's and $numberDouble to float64
+func fixBsonDoc(input []interface{}) ([]interface{}, error) {
+	var output []interface{}
+
+	for _, stage := range input {
+		if stageMap, ok := stage.(map[string]interface{}); ok {
+			fixedStage := make(map[string]interface{})
+
+			for key, value := range stageMap {
+				fixedValue, err := fixBsonValue(value)
 				if err != nil {
 					return nil, err
 				}
-				return objID, nil
+				fixedStage[key] = fixedValue
 			}
+
+			output = append(output, fixedStage)
+		} else {
+			return nil, fmt.Errorf("unexpected stage type: %T", stage)
 		}
-		for key, val := range v {
-			fixedVal, err := fixBsonDoc(val)
-			if err != nil {
-				return nil, err
-			}
-			v[key] = fixedVal
-		}
-		return v, nil
-	default:
-		return v, nil
 	}
+
+	return output, nil
 }
 
 // Aggregate handles aggregation pipeline operations
@@ -184,23 +227,22 @@ func Aggregate(c *fiber.Ctx) error {
 	log.Printf("Received request for database: %s, collection: %s", doc.Database, doc.Collection)
 	log.Printf("Original pipeline: %+v", doc.Pipeline)
 
-	// FIX the pipeline
-	fixedPipelineInterface, err := fixBsonDoc(doc.Pipeline)
+	// Fix the pipeline directly
+	rawPipeline := make([]interface{}, len(doc.Pipeline))
+	for i, m := range doc.Pipeline {
+		rawPipeline[i] = m
+	}
+
+	fixedPipeline, err := fixBsonDoc(rawPipeline)
 	if err != nil {
+		log.Printf("Error fixing pipeline: %v", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// fixedPipelineInterface is type []interface{}, convert it
-	fixedMaps := fixedPipelineInterface.([]map[string]interface{})
-	fixedPipeline := make([]interface{}, len(fixedMaps))
-	for i, m := range fixedMaps {
-		fixedPipeline[i] = m
-	}
+	log.Printf("Cleaned pipeline: %+v", fixedPipeline)
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
 
-	log.Printf("Cleaned pipeline: %+v", fixedPipeline)
-	// Pass the modified pipeline to Aggregate
 	cursor, err := collection.Aggregate(context.Background(), fixedPipeline)
 	if err != nil {
 		log.Printf("Aggregation error: %v", err)
@@ -208,7 +250,6 @@ func Aggregate(c *fiber.Ctx) error {
 	}
 	defer cursor.Close(context.Background())
 
-	// Fetch and return the results
 	var results []bson.M
 	if err = cursor.All(context.Background(), &results); err != nil {
 		log.Printf("Error reading results: %v", err)
