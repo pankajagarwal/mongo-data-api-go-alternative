@@ -55,14 +55,20 @@ func deserializeInput(input interface{}) (interface{}, error) {
 }
 
 // Helper function to serialize outgoing data
-func serializeOutput(output interface{}) (string, error) {
+func serializeOutput(output interface{}) (interface{}, error) {
 	// Serialize BSON data to EJSON
 	ejsonBytes, err := bson.MarshalExtJSON(output, true, true)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return string(ejsonBytes), nil
+	// Unmarshal the EJSON bytes back into a Go map
+	var jsonData interface{}
+	if err := json.Unmarshal(ejsonBytes, &jsonData); err != nil {
+		return nil, err
+	}
+
+	return jsonData, nil
 }
 
 func preprocessFilter(filter map[string]interface{}) (map[string]interface{}, error) {
