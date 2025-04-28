@@ -11,7 +11,6 @@ import (
 	"mongo-data-api-go-alternative/metrics"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/logger"
 )
 
 func main() {
@@ -28,7 +27,7 @@ func main() {
 	})
 
 	// Add logger middleware
-	app.Use(logger.New())
+	// app.Use(logger.New())
 
 	// API Key Authentication Middleware
 	app.Use(func(c *fiber.Ctx) error {
