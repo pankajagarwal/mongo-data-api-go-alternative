@@ -105,6 +105,20 @@ func preprocessFilter(filter map[string]interface{}) (map[string]interface{}, er
 				}
 				filter[key] = processedValue
 			}
+		case []interface{}:
+			// Handle arrays (e.g., for $in, $nin, etc.)
+			for i, item := range v {
+				switch item := item.(type) {
+				case map[string]interface{}:
+					// Recursively preprocess each item in the array
+					processedItem, err := preprocessFilter(item)
+					if err != nil {
+						return nil, err
+					}
+					v[i] = processedItem
+				}
+			}
+			filter[key] = v
 		}
 	}
 	return filter, nil
