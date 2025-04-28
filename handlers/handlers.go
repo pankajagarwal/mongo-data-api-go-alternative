@@ -177,8 +177,8 @@ func Aggregate(c *fiber.Ctx) error {
 			case "$project":
 				if project, ok := value.(map[string]interface{}); ok {
 					projectDoc := bson.D{}
-					for field, val := range project {
-						projectDoc = append(projectDoc, bson.E{Key: field, Value: val})
+					for field := range project {
+						projectDoc = append(projectDoc, bson.E{Key: field, Value: 1})
 					}
 					stageDoc = append(stageDoc, bson.E{Key: "$project", Value: projectDoc})
 					log.Printf("Stage %d - Project: %+v", i, projectDoc)
