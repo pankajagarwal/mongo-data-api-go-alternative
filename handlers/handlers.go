@@ -189,7 +189,7 @@ func FindOne(c *fiber.Ctx) error {
 	}
 
 	// Log the raw filter
-	log.Printf("Raw Filter: %+v", doc.Filter)
+	// log.Printf("Raw Filter: %+v", doc.Filter)
 
 	// Preprocess the filter
 	preprocessedFilter, err := preprocessFilter(doc.Filter)
@@ -199,7 +199,7 @@ func FindOne(c *fiber.Ctx) error {
 	}
 
 	// Log the preprocessed filter
-	log.Printf("Preprocessed Filter: %+v", preprocessedFilter)
+	// log.Printf("Preprocessed Filter: %+v", preprocessedFilter)
 
 	// Preprocess the projection
 	preprocessedProjection, err := preprocessFilter(doc.Projection)
@@ -209,7 +209,7 @@ func FindOne(c *fiber.Ctx) error {
 	}
 
 	// Log the preprocessed projection
-	log.Printf("Preprocessed Projection: %+v", preprocessedProjection)
+	// log.Printf("Preprocessed Projection: %+v", preprocessedProjection)
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
 
@@ -247,45 +247,67 @@ func FindOne(c *fiber.Ctx) error {
 func Find(c *fiber.Ctx) error {
 	var doc Document
 	if err := c.BodyParser(&doc); err != nil {
+		log.Printf("Error parsing request body: %v", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Deserialize the filter and projection
-	deserializedFilter, err := deserializeInput(doc.Filter)
+	// Log the raw filter
+	// log.Printf("Raw Filter: %+v", doc.Filter)
+
+	// Preprocess the filter
+	preprocessedFilter, err := preprocessFilter(doc.Filter)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize filter"})
+		log.Printf("Failed to preprocess filter: %v", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to preprocess filter", "details": err.Error()})
 	}
 
-	deserializedProjection, err := deserializeInput(doc.Projection)
+	// Log the preprocessed filter
+	// log.Printf("Preprocessed Filter: %+v", preprocessedFilter)
+
+	// Preprocess the projection
+	preprocessedProjection, err := preprocessFilter(doc.Projection)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize projection"})
+		log.Printf("Failed to preprocess projection: %v", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to preprocess projection", "details": err.Error()})
 	}
+
+	// Log the preprocessed projection
+	// log.Printf("Preprocessed Projection: %+v", preprocessedProjection)
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
-	opts := options.Find().SetProjection(deserializedProjection).SetSort(doc.Sort).SetLimit(doc.Limit)
-	cursor, err := collection.Find(context.Background(), deserializedFilter, opts)
+
+	// Execute the Find query with filter and projection
+	cursor, err := collection.Find(
+		context.Background(),
+		preprocessedFilter,
+		options.Find().SetProjection(preprocessedProjection),
+	)
 	if err != nil {
+		log.Printf("Error executing Find: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	defer cursor.Close(context.Background())
 
+	// Decode the results into a slice
 	var results []bson.M
-	if err = cursor.All(context.Background(), &results); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	if err := cursor.All(context.Background(), &results); err != nil {
+		log.Printf("Error decoding results: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to decode results"})
 	}
 
 	// Wrap the results in a map to serialize
-	wrappedResults := map[string]interface{}{
+	wrappedResult := map[string]interface{}{
 		"documents": results,
 	}
 
-	// Serialize the results before returning
-	serializedResults, err := serializeOutput(wrappedResults)
+	// Serialize the result before returning
+	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize results"})
+		log.Printf("Failed to serialize result: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
 	}
 
-	return c.JSON(serializedResults)
+	return c.JSON(serializedResult)
 }
 
 // UpdateOne handles updating a single document

@@ -63,7 +63,7 @@ func main() {
 
 		// Log only if the response time exceeds 1000ms or the status code is not 200
 		statusCode := c.Response().StatusCode()
-		if duration > 1000 || statusCode != fiber.StatusOK {
+		if duration > 100 || statusCode != fiber.StatusOK {
 			log.Printf("Method: %s, URL: %s, Status: %d, Duration: %dms, Body: %v, Headers: %v",
 				c.Method(),
 				c.OriginalURL(),
