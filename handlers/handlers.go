@@ -110,12 +110,34 @@ func preprocessFilter(filter map[string]interface{}) (map[string]interface{}, er
 			for i, item := range v {
 				switch item := item.(type) {
 				case map[string]interface{}:
-					// Recursively preprocess each item in the array
-					processedItem, err := preprocessFilter(item)
-					if err != nil {
-						return nil, err
+					// Check for $oid and $date in array items
+					if oid, ok := item["$oid"]; ok {
+						objectID, err := primitive.ObjectIDFromHex(oid.(string))
+						if err != nil {
+							return nil, err
+						}
+						v[i] = objectID // Replace the map with the ObjectID
+					} else if date, ok := item["$date"]; ok {
+						switch dateValue := date.(type) {
+						case string:
+							parsedDate, err := time.Parse(time.RFC3339, dateValue)
+							if err != nil {
+								return nil, err
+							}
+							v[i] = primitive.NewDateTimeFromTime(parsedDate) // Replace the map with the DateTime
+						case float64: // Handle timestamp in milliseconds
+							v[i] = primitive.NewDateTimeFromTime(time.UnixMilli(int64(dateValue)))
+						default:
+							return nil, fmt.Errorf("invalid $date value: %v", date)
+						}
+					} else {
+						// Recursively preprocess nested objects in the array
+						processedItem, err := preprocessFilter(item)
+						if err != nil {
+							return nil, err
+						}
+						v[i] = processedItem
 					}
-					v[i] = processedItem
 				}
 			}
 			filter[key] = v
