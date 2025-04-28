@@ -87,7 +87,7 @@ curl -X POST http://127.0.0.1:3000/api/deleteOne -H "Content-Type: application/j
 #### Aggregate
 ```
 curl -s "http://127.0.0.1:3000/api/aggregate" \
-  -X POST -H "apiKey: test_key -H 'Content-Type: application/ejson' -H "Accept: application/json" -d '{
+  -X POST -H "apiKey: test_key -H "Content-Type: application/ejson" -H "Accept: application/json" -d '{
     "dataSource": "mongodb-atlas",
     "database": "your_database",
     "collection": "your_collection",

@@ -5,12 +5,14 @@ import (
 	"log"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"mongo-data-api-go-alternative/db"
 	"mongo-data-api-go-alternative/metrics"
+
+	"github.com/gofiber/fiber/v2"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type Document struct {
@@ -127,6 +129,50 @@ func DeleteOne(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"deletedCount": result.DeletedCount})
 }
 
+// fix $oid to objectid's and $numberDouble to float64
+func fixBsonDoc(input interface{}) (interface{}, error) {
+	switch v := input.(type) {
+	case []interface{}:
+		for i, elem := range v {
+			fixedElem, err := fixBsonDoc(elem)
+			if err != nil {
+				return nil, err
+			}
+			v[i] = fixedElem
+		}
+		return v, nil
+	case []map[string]interface{}:
+		for i, elem := range v {
+			fixedElem, err := fixBsonDoc(elem)
+			if err != nil {
+				return nil, err
+			}
+			v[i] = fixedElem.(map[string]interface{})
+		}
+		return v, nil
+	case map[string]interface{}:
+		if oid, ok := v["$oid"]; ok {
+			if oidStr, ok := oid.(string); ok {
+				objID, err := primitive.ObjectIDFromHex(oidStr)
+				if err != nil {
+					return nil, err
+				}
+				return objID, nil
+			}
+		}
+		for key, val := range v {
+			fixedVal, err := fixBsonDoc(val)
+			if err != nil {
+				return nil, err
+			}
+			v[key] = fixedVal
+		}
+		return v, nil
+	default:
+		return v, nil
+	}
+}
+
 // Aggregate handles aggregation pipeline operations
 func Aggregate(c *fiber.Ctx) error {
 	var doc Document
@@ -138,64 +184,24 @@ func Aggregate(c *fiber.Ctx) error {
 	log.Printf("Received request for database: %s, collection: %s", doc.Database, doc.Collection)
 	log.Printf("Original pipeline: %+v", doc.Pipeline)
 
-	collection := db.GetCollection(doc.Database, doc.Collection)
-
-	// Convert the pipeline to proper MongoDB format
-	var pipeline mongo.Pipeline
-	for i, stage := range doc.Pipeline {
-		// Convert each stage to bson.D
-		stageDoc := bson.D{}
-		for key, value := range stage {
-			switch key {
-			case "$match":
-				if match, ok := value.(map[string]interface{}); ok {
-					if id, ok := match["_id"].(map[string]interface{}); ok {
-						if oid, ok := id["$oid"].(string); ok {
-							objectId, err := bson.ObjectIDFromHex(oid)
-							if err != nil {
-								log.Printf("Error converting ObjectId: %v", err)
-								return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-							}
-							stageDoc = append(stageDoc, bson.E{Key: "$match", Value: bson.D{
-								{Key: "_id", Value: objectId},
-							}})
-							log.Printf("Stage %d - Match with ObjectId: %v", i, objectId)
-						}
-					}
-				}
-			case "$lookup":
-				if lookup, ok := value.(map[string]interface{}); ok {
-					stageDoc = append(stageDoc, bson.E{Key: "$lookup", Value: bson.D{
-						{Key: "from", Value: lookup["from"]},
-						{Key: "localField", Value: lookup["localField"]},
-						{Key: "foreignField", Value: lookup["foreignField"]},
-						{Key: "as", Value: lookup["as"]},
-					}})
-					log.Printf("Stage %d - Lookup: from=%s, localField=%s, foreignField=%s, as=%s", 
-						i, lookup["from"], lookup["localField"], lookup["foreignField"], lookup["as"])
-				}
-			case "$project":
-				if project, ok := value.(map[string]interface{}); ok {
-					projectDoc := bson.D{}
-					for field := range project {
-						projectDoc = append(projectDoc, bson.E{Key: field, Value: 1})
-					}
-					stageDoc = append(stageDoc, bson.E{Key: "$project", Value: projectDoc})
-					log.Printf("Stage %d - Project: %+v", i, projectDoc)
-				}
-			}
-		}
-		if len(stageDoc) > 0 {
-			pipeline = append(pipeline, stageDoc)
-		}
+	// FIX the pipeline
+	fixedPipelineInterface, err := fixBsonDoc(doc.Pipeline)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Log the final aggregation pipeline for debugging
-	log.Printf("Final MongoDB pipeline: %+v", pipeline)
-	log.Printf("Collection: %s", doc.Collection)
+	// fixedPipelineInterface is type []interface{}, convert it
+	fixedMaps := fixedPipelineInterface.([]map[string]interface{})
+	fixedPipeline := make([]interface{}, len(fixedMaps))
+	for i, m := range fixedMaps {
+		fixedPipeline[i] = m
+	}
 
+	collection := db.GetCollection(doc.Database, doc.Collection)
+
+	log.Printf("Cleaned pipeline: %+v", fixedPipeline)
 	// Pass the modified pipeline to Aggregate
-	cursor, err := collection.Aggregate(context.Background(), pipeline)
+	cursor, err := collection.Aggregate(context.Background(), fixedPipeline)
 	if err != nil {
 		log.Printf("Aggregation error: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -229,7 +235,14 @@ func InsertMany(c *fiber.Ctx) error {
 	}
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
-	result, err := collection.InsertMany(context.Background(), doc.Documents)
+
+	// Convert []map[string]interface{} to []interface{}
+	docs := make([]interface{}, len(doc.Documents))
+	for i, d := range doc.Documents {
+		docs[i] = d
+	}
+
+	result, err := collection.InsertMany(context.Background(), docs)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -271,4 +284,4 @@ func UpdateMany(c *fiber.Ctx) error {
 		"modifiedCount": result.ModifiedCount,
 		"upsertedCount": result.UpsertedCount,
 	})
-} 
+}

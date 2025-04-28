@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var client *mongo.Client
@@ -26,7 +26,7 @@ func Connect() error {
 	clientOptions := options.Client().ApplyURI(uri)
 
 	var err error
-	client, err = mongo.Connect(clientOptions)
+	client, err = mongo.Connect(ctx, clientOptions)
 	if err != nil {
 		return err
 	}

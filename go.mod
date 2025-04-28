@@ -5,7 +5,7 @@ go 1.22
 require (
 	github.com/gofiber/fiber/v2 v2.52.4
 	github.com/prometheus/client_golang v1.19.1
-	go.mongodb.org/mongo-driver/v2 v2.2.0
+	go.mongodb.org/mongo-driver v1.17.3
 )
 
 require (
@@ -18,6 +18,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
+	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.48.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
