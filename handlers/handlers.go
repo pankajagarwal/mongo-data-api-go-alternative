@@ -60,8 +60,27 @@ func FindOne(c *fiber.Ctx) error {
 	}
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
+
+	fixedFilterInterface, err := fixBsonValue(doc.Filter)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+	fixedFilter, ok := fixedFilterInterface.(map[string]interface{})
+	if !ok {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid filter format"})
+	}
+
+	fixedProjection := doc.Projection
+	if doc.Projection != nil {
+		fixedProjectionInterface, err := fixBsonValue(doc.Projection)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
+		fixedProjection, _ = fixedProjectionInterface.(map[string]interface{})
+	}
+
 	var result bson.M
-	err := collection.FindOne(context.Background(), doc.Filter, options.FindOne().SetProjection(doc.Projection)).Decode(&result)
+	err = collection.FindOne(context.Background(), fixedFilter, options.FindOne().SetProjection(fixedProjection)).Decode(&result)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "No document found"})
