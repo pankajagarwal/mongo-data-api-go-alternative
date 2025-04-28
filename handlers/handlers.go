@@ -2,9 +2,8 @@ package handlers
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"log"
-	"strconv"
 	"time"
 
 	"mongo-data-api-go-alternative/db"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -30,6 +28,35 @@ type Document struct {
 	Pipeline   []map[string]interface{} `json:"pipeline"`
 }
 
+// Helper function to deserialize incoming data
+func deserializeInput(input interface{}) (interface{}, error) {
+	// Convert input to JSON string
+	jsonData, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+
+	// Deserialize JSON string to BSON
+	var bsonData interface{}
+	err = bson.UnmarshalExtJSON(jsonData, true, &bsonData)
+	if err != nil {
+		return nil, err
+	}
+
+	return bsonData, nil
+}
+
+// Helper function to serialize outgoing data
+func serializeOutput(output interface{}) (string, error) {
+	// Serialize BSON data to EJSON
+	ejsonBytes, err := bson.MarshalExtJSON(output, true, true)
+	if err != nil {
+		return "", err
+	}
+
+	return string(ejsonBytes), nil
+}
+
 // InsertOne handles document insertion
 func InsertOne(c *fiber.Ctx) error {
 	start := time.Now()
@@ -38,8 +65,14 @@ func InsertOne(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Deserialize the incoming document
+	deserializedDoc, err := deserializeInput(doc.Document)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize document"})
+	}
+
 	collection := db.GetCollection(doc.Database, doc.Collection)
-	result, err := collection.InsertOne(context.Background(), doc.Document)
+	result, err := collection.InsertOne(context.Background(), deserializedDoc)
 	duration := time.Since(start).Seconds()
 
 	// Record MongoDB operation metrics
@@ -49,7 +82,45 @@ func InsertOne(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return c.JSON(fiber.Map{"insertedId": result.InsertedID})
+	// Serialize the result before returning
+	serializedResult, err := serializeOutput(result.InsertedID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
+	}
+
+	return c.JSON(fiber.Map{"insertedId": serializedResult})
+}
+
+// InsertMany handles inserting multiple documents
+func InsertMany(c *fiber.Ctx) error {
+	var doc Document
+	if err := c.BodyParser(&doc); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Deserialize the incoming documents
+	var deserializedDocs []interface{}
+	for _, document := range doc.Documents {
+		deserializedDoc, err := deserializeInput(document)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize document"})
+		}
+		deserializedDocs = append(deserializedDocs, deserializedDoc)
+	}
+
+	collection := db.GetCollection(doc.Database, doc.Collection)
+	result, err := collection.InsertMany(context.Background(), deserializedDocs)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Serialize the result before returning
+	serializedResult, err := serializeOutput(result.InsertedIDs)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
+	}
+
+	return c.JSON(fiber.Map{"insertedIds": serializedResult})
 }
 
 // FindOne handles single document retrieval
@@ -59,28 +130,21 @@ func FindOne(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Deserialize the filter and projection
+	deserializedFilter, err := deserializeInput(doc.Filter)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize filter"})
+	}
+
+	deserializedProjection, err := deserializeInput(doc.Projection)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize projection"})
+	}
+
 	collection := db.GetCollection(doc.Database, doc.Collection)
 
-	fixedFilterInterface, err := fixBsonValue(doc.Filter)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-	}
-	fixedFilter, ok := fixedFilterInterface.(map[string]interface{})
-	if !ok {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid filter format"})
-	}
-
-	fixedProjection := doc.Projection
-	if doc.Projection != nil {
-		fixedProjectionInterface, err := fixBsonValue(doc.Projection)
-		if err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-		}
-		fixedProjection, _ = fixedProjectionInterface.(map[string]interface{})
-	}
-
 	var result bson.M
-	err = collection.FindOne(context.Background(), fixedFilter, options.FindOne().SetProjection(fixedProjection)).Decode(&result)
+	err = collection.FindOne(context.Background(), deserializedFilter, options.FindOne().SetProjection(deserializedProjection)).Decode(&result)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "No document found"})
@@ -88,7 +152,13 @@ func FindOne(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return c.JSON(result)
+	// Serialize the result before returning
+	serializedResult, err := serializeOutput(result)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
+	}
+
+	return c.JSON(fiber.Map{"document": serializedResult})
 }
 
 // Find handles multiple document retrieval
@@ -98,9 +168,20 @@ func Find(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Deserialize the filter and projection
+	deserializedFilter, err := deserializeInput(doc.Filter)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize filter"})
+	}
+
+	deserializedProjection, err := deserializeInput(doc.Projection)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize projection"})
+	}
+
 	collection := db.GetCollection(doc.Database, doc.Collection)
-	opts := options.Find().SetProjection(doc.Projection).SetSort(doc.Sort).SetLimit(doc.Limit)
-	cursor, err := collection.Find(context.Background(), doc.Filter, opts)
+	opts := options.Find().SetProjection(deserializedProjection).SetSort(doc.Sort).SetLimit(doc.Limit)
+	cursor, err := collection.Find(context.Background(), deserializedFilter, opts)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -111,128 +192,135 @@ func Find(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return c.JSON(results)
+	// Serialize the results before returning
+	serializedResults, err := serializeOutput(results)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize results"})
+	}
+
+	return c.JSON(fiber.Map{"documents": serializedResults})
 }
 
-// UpdateOne handles document updates
+// UpdateOne handles updating a single document
 func UpdateOne(c *fiber.Ctx) error {
 	var doc Document
 	if err := c.BodyParser(&doc); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Deserialize the filter and update
+	deserializedFilter, err := deserializeInput(doc.Filter)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize filter"})
+	}
+
+	deserializedUpdate, err := deserializeInput(doc.Update)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize update"})
+	}
+
 	collection := db.GetCollection(doc.Database, doc.Collection)
-	result, err := collection.UpdateOne(context.Background(), doc.Filter, doc.Update)
+	result, err := collection.UpdateOne(context.Background(), deserializedFilter, deserializedUpdate)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return c.JSON(fiber.Map{
-		"matchedCount":  result.MatchedCount,
-		"modifiedCount": result.ModifiedCount,
-		"upsertedCount": result.UpsertedCount,
-	})
+	// Serialize the result before returning
+	serializedResult, err := serializeOutput(result)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
+	}
+
+	return c.JSON(fiber.Map{"result": serializedResult})
 }
 
-// DeleteOne handles document deletion
+// UpdateMany handles updating multiple documents
+func UpdateMany(c *fiber.Ctx) error {
+	var doc Document
+	if err := c.BodyParser(&doc); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Deserialize the filter and update
+	deserializedFilter, err := deserializeInput(doc.Filter)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize filter"})
+	}
+
+	deserializedUpdate, err := deserializeInput(doc.Update)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize update"})
+	}
+
+	collection := db.GetCollection(doc.Database, doc.Collection)
+	result, err := collection.UpdateMany(context.Background(), deserializedFilter, deserializedUpdate)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Serialize the result before returning
+	serializedResult, err := serializeOutput(result)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
+	}
+
+	return c.JSON(fiber.Map{"result": serializedResult})
+}
+
+// DeleteOne handles deleting a single document
 func DeleteOne(c *fiber.Ctx) error {
 	var doc Document
 	if err := c.BodyParser(&doc); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Deserialize the filter
+	deserializedFilter, err := deserializeInput(doc.Filter)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize filter"})
+	}
+
 	collection := db.GetCollection(doc.Database, doc.Collection)
-	result, err := collection.DeleteOne(context.Background(), doc.Filter)
+	result, err := collection.DeleteOne(context.Background(), deserializedFilter)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return c.JSON(fiber.Map{"deletedCount": result.DeletedCount})
-}
-
-func fixBsonValue(value interface{}) (interface{}, error) {
-	switch v := value.(type) {
-	case map[string]interface{}:
-		// Check for special MongoDB extended JSON types
-		if len(v) == 1 {
-			if oid, ok := v["$oid"]; ok {
-				if oidStr, ok := oid.(string); ok {
-					objectID, err := primitive.ObjectIDFromHex(oidStr)
-					if err != nil {
-						return nil, err
-					}
-					return objectID, nil
-				}
-			}
-			if numberDouble, ok := v["$numberDouble"]; ok {
-				if numStr, ok := numberDouble.(string); ok {
-					parsed, err := strconv.ParseFloat(numStr, 64)
-					if err != nil {
-						return nil, err
-					}
-					return parsed, nil
-				}
-			}
-			if date, ok := v["$date"]; ok {
-				if dateStr, ok := date.(string); ok {
-					parsedTime, err := time.Parse(time.RFC3339, dateStr)
-					if err != nil {
-						return nil, err
-					}
-					return parsedTime, nil
-				}
-			}
-		}
-		// Otherwise recursively fix inner maps
-		fixedMap := make(map[string]interface{})
-		for key, innerVal := range v {
-			fixedInnerVal, err := fixBsonValue(innerVal)
-			if err != nil {
-				return nil, err
-			}
-			fixedMap[key] = fixedInnerVal
-		}
-		return fixedMap, nil
-
-	case []interface{}:
-		var fixedArr []interface{}
-		for _, item := range v {
-			fixedItem, err := fixBsonValue(item)
-			if err != nil {
-				return nil, err
-			}
-			fixedArr = append(fixedArr, fixedItem)
-		}
-		return fixedArr, nil
-
-	default:
-		return value, nil
-	}
-}
-
-// fix $oid to objectid's and $numberDouble to float64
-func fixBsonDoc(input []interface{}) ([]interface{}, error) {
-	var output []interface{}
-
-	for _, stage := range input {
-		if stageMap, ok := stage.(map[string]interface{}); ok {
-			fixedStage := make(map[string]interface{})
-
-			for key, value := range stageMap {
-				fixedValue, err := fixBsonValue(value)
-				if err != nil {
-					return nil, err
-				}
-				fixedStage[key] = fixedValue
-			}
-
-			output = append(output, fixedStage)
-		} else {
-			return nil, fmt.Errorf("unexpected stage type: %T", stage)
-		}
+	// Serialize the result before returning
+	serializedResult, err := serializeOutput(result)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
 	}
 
-	return output, nil
+	return c.JSON(fiber.Map{"result": serializedResult})
+}
+
+// DeleteMany handles deleting multiple documents
+func DeleteMany(c *fiber.Ctx) error {
+	var doc Document
+	if err := c.BodyParser(&doc); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Deserialize the filter
+	deserializedFilter, err := deserializeInput(doc.Filter)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize filter"})
+	}
+
+	collection := db.GetCollection(doc.Database, doc.Collection)
+	result, err := collection.DeleteMany(context.Background(), deserializedFilter)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Serialize the result before returning
+	serializedResult, err := serializeOutput(result)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
+	}
+
+	return c.JSON(fiber.Map{"result": serializedResult})
 }
 
 // Aggregate handles aggregation pipeline operations
@@ -243,26 +331,15 @@ func Aggregate(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	log.Printf("Received request for database: %s, collection: %s", doc.Database, doc.Collection)
-	log.Printf("Original pipeline: %+v", doc.Pipeline)
-
-	// Fix the pipeline directly
-	rawPipeline := make([]interface{}, len(doc.Pipeline))
-	for i, m := range doc.Pipeline {
-		rawPipeline[i] = m
-	}
-
-	fixedPipeline, err := fixBsonDoc(rawPipeline)
+	// Deserialize the pipeline
+	deserializedPipeline, err := deserializeInput(doc.Pipeline)
 	if err != nil {
-		log.Printf("Error fixing pipeline: %v", err)
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize pipeline"})
 	}
-
-	log.Printf("Cleaned pipeline: %+v", fixedPipeline)
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
 
-	cursor, err := collection.Aggregate(context.Background(), fixedPipeline)
+	cursor, err := collection.Aggregate(context.Background(), deserializedPipeline)
 	if err != nil {
 		log.Printf("Aggregation error: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -275,73 +352,11 @@ func Aggregate(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	log.Printf("Number of results: %d", len(results))
-	if len(results) > 0 {
-		log.Printf("First result: %+v", results[0])
-	}
-
-	return c.JSON(results)
-}
-
-// InsertMany handles multiple document insertion
-func InsertMany(c *fiber.Ctx) error {
-	var doc Document
-	if err := c.BodyParser(&doc); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	if len(doc.Documents) == 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "No documents provided"})
-	}
-
-	collection := db.GetCollection(doc.Database, doc.Collection)
-
-	// Convert []map[string]interface{} to []interface{}
-	docs := make([]interface{}, len(doc.Documents))
-	for i, d := range doc.Documents {
-		docs[i] = d
-	}
-
-	result, err := collection.InsertMany(context.Background(), docs)
+	// Serialize the results before returning
+	serializedResults, err := serializeOutput(results)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize results"})
 	}
 
-	return c.JSON(fiber.Map{"insertedIds": result.InsertedIDs})
-}
-
-// DeleteMany handles multiple document deletion
-func DeleteMany(c *fiber.Ctx) error {
-	var doc Document
-	if err := c.BodyParser(&doc); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	collection := db.GetCollection(doc.Database, doc.Collection)
-	result, err := collection.DeleteMany(context.Background(), doc.Filter)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	return c.JSON(fiber.Map{"deletedCount": result.DeletedCount})
-}
-
-// UpdateMany handles multiple document updates
-func UpdateMany(c *fiber.Ctx) error {
-	var doc Document
-	if err := c.BodyParser(&doc); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	collection := db.GetCollection(doc.Database, doc.Collection)
-	result, err := collection.UpdateMany(context.Background(), doc.Filter, doc.Update)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	return c.JSON(fiber.Map{
-		"matchedCount":  result.MatchedCount,
-		"modifiedCount": result.ModifiedCount,
-		"upsertedCount": result.UpsertedCount,
-	})
+	return c.JSON(fiber.Map{"documents": serializedResults})
 }
