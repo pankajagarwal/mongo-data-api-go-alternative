@@ -40,7 +40,7 @@ func deserializeInput(input interface{}) (interface{}, error) {
 	}
 
 	// Log the JSON string for debugging
-	log.Printf("Input JSON for deserialization: %s", string(jsonData))
+	// log.Printf("Input JSON for deserialization: %s", string(jsonData))
 
 	// Deserialize JSON string to BSON
 	var bsonData interface{} // Use interface{} to handle both bson.D and bson.A
