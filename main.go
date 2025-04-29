@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"mongo-data-api-go-alternative/db"
@@ -74,13 +75,60 @@ func main() {
 			)
 		}
 
-		// Record HTTP metrics
-		metrics.RecordHTTPRequest(
-			c.Method(),
-			c.Path(),
-			strconv.Itoa(statusCode),
-			float64(duration)/1000.0, // Convert duration to seconds for metrics
-		)
+		// Get the original path before any modifications
+		path := c.OriginalURL()
+		if path == "" {
+			path = c.Path()
+		}
+
+		// Skip metrics for health check and metrics endpoints
+		if path == "/api/health" || path == "/metrics" {
+			return err
+		}
+
+		// Sanitize method and path
+		method := strings.ToUpper(strings.TrimSpace(c.Method()))
+		path = strings.TrimSpace(path)
+
+		// Only record metrics for valid HTTP methods
+		validMethods := map[string]bool{
+			"GET":     true,
+			"POST":    true,
+			"PUT":     true,
+			"DELETE":  true,
+			"PATCH":   true,
+			"HEAD":    true,
+			"OPTIONS": true,
+		}
+
+		// Only record metrics for valid API routes
+		validRoutes := map[string]bool{
+			"/api/insertOne":   true,
+			"/api/insertMany":  true,
+			"/api/findOne":     true,
+			"/api/find":        true,
+			"/api/updateOne":   true,
+			"/api/updateMany":  true,
+			"/api/deleteOne":   true,
+			"/api/deleteMany":  true,
+			"/api/aggregate":   true,
+		}
+
+		// Debug log for invalid paths
+		if !validRoutes[path] {
+			log.Printf("Skipping metrics for invalid path: %s", path)
+			return err
+		}
+
+		if validMethods[method] && validRoutes[path] {
+			// Record HTTP metrics
+			metrics.RecordHTTPRequest(
+				method,
+				path,
+				strconv.Itoa(statusCode),
+				float64(duration)/1000.0, // Convert duration to seconds for metrics
+			)
+		}
 
 		return err
 	})

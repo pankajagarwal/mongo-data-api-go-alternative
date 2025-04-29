@@ -3,26 +3,26 @@ package metrics
 import (
 	"bytes"
 	"net/http"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
 	// HTTP request duration
-	httpRequestDuration = promauto.NewHistogramVec(
+	httpRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "http_request_duration_seconds",
 			Help:    "Duration of HTTP requests in seconds",
-			Buckets: prometheus.DefBuckets,
+			Buckets: []float64{0.1, 0.5, 1.0, 2.5, 5.0, 10.0},
 		},
 		[]string{"method", "path", "status"},
 	)
 
 	// Total requests
-	httpRequestsTotal = promauto.NewCounterVec(
+	httpRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "http_requests_total",
 			Help: "Total number of HTTP requests",
@@ -31,7 +31,7 @@ var (
 	)
 
 	// MongoDB operation duration
-	mongoOperationDuration = promauto.NewHistogramVec(
+	mongoOperationDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "mongo_operation_duration_seconds",
 			Help:    "Duration of MongoDB operations in seconds",
@@ -41,7 +41,7 @@ var (
 	)
 
 	// MongoDB operation errors
-	mongoOperationErrors = promauto.NewCounterVec(
+	mongoOperationErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "mongo_operation_errors_total",
 			Help: "Total number of MongoDB operation errors",
@@ -50,8 +50,41 @@ var (
 	)
 )
 
+func init() {
+	prometheus.MustRegister(
+		httpRequestDuration,
+		httpRequestsTotal,
+		mongoOperationDuration,
+		mongoOperationErrors,
+	)
+}
+
 // RecordHTTPRequest records HTTP request metrics
 func RecordHTTPRequest(method, path, status string, duration float64) {
+	// Skip metrics for health check and metrics endpoints
+	if strings.HasPrefix(path, "/api/health") || path == "/metrics" {
+		return
+	}
+
+	// Sanitize method and path
+	method = strings.ToUpper(strings.TrimSpace(method))
+	path = strings.TrimSpace(path)
+
+	// Only record metrics for valid HTTP methods
+	validMethods := map[string]bool{
+		"GET":     true,
+		"POST":    true,
+		"PUT":     true,
+		"DELETE":  true,
+		"PATCH":   true,
+		"HEAD":    true,
+		"OPTIONS": true,
+	}
+
+	if !validMethods[method] {
+		return
+	}
+
 	httpRequestDuration.WithLabelValues(method, path, status).Observe(duration)
 	httpRequestsTotal.WithLabelValues(method, path, status).Inc()
 }
