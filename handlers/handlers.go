@@ -264,7 +264,7 @@ func FindOne(c *fiber.Ctx) error {
 	).Decode(&result)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "No document found"})
+			return c.Status(fiber.StatusOK).JSON(fiber.Map{"document": nil})
 		}
 		log.Printf("Error executing FindOne: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -325,6 +325,9 @@ func Find(c *fiber.Ctx) error {
 		options.Find().SetProjection(preprocessedProjection),
 	)
 	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(fiber.StatusOK).JSON(fiber.Map{"document": nil})
+		}
 		log.Printf("Error executing Find: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
