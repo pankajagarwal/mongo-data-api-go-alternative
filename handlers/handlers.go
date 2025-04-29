@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"mongo-data-api-go-alternative/db"
-	"mongo-data-api-go-alternative/metrics"
-
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -148,7 +146,6 @@ func preprocessFilter(filter map[string]interface{}) (map[string]interface{}, er
 
 // InsertOne handles document insertion
 func InsertOne(c *fiber.Ctx) error {
-	start := time.Now()
 	var doc Document
 	if err := c.BodyParser(&doc); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
@@ -162,10 +159,6 @@ func InsertOne(c *fiber.Ctx) error {
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
 	result, err := collection.InsertOne(context.Background(), deserializedDoc)
-	duration := time.Since(start).Seconds()
-
-	// Record MongoDB operation metrics
-	metrics.RecordMongoOperation("insertOne", doc.Database, doc.Collection, duration, err)
 
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -544,7 +537,6 @@ func Aggregate(c *fiber.Ctx) error {
 		log.Printf("Failed to serialize results: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize results", "details": err.Error()})
 	}
-	// log.Printf("serializedResults: %+v", serializedResults)
 
 	return c.JSON(serializedResults)
 }
