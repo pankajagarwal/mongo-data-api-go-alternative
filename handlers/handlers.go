@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"mongo-data-api-go-alternative/db"
+
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -37,12 +39,19 @@ func deserializeInput(input interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	// Log the JSON string for debugging
-	// log.Printf("Input JSON for deserialization: %s", string(jsonData))
+	jsonStr := strings.TrimSpace(string(jsonData))
 
 	// Deserialize JSON string to BSON
 	var bsonData interface{} // Use interface{} to handle both bson.D and bson.A
-	err = bson.UnmarshalExtJSON(jsonData, true, &bsonData)
+	if strings.HasPrefix(jsonStr, "[") {
+		// Handle as BSON array
+		var bsonArray bson.A
+		err = bson.UnmarshalExtJSON(jsonData, true, &bsonArray)
+		bsonData = bsonArray
+	} else {
+		// Handle as BSON document
+		err = bson.UnmarshalExtJSON(jsonData, true, &bsonData)
+	}
 	if err != nil {
 		log.Printf("Failed to deserialize input: %v", err)
 		log.Printf("Input JSON: %s", string(jsonData))
