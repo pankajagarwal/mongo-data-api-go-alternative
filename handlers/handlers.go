@@ -3,16 +3,12 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
-	"strings"
-	"time"
 
 	"mongo-data-api-go-alternative/db"
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -24,9 +20,11 @@ type Document struct {
 	Documents  []map[string]interface{} `json:"documents"`
 	Filter     map[string]interface{}   `json:"filter"`
 	Update     map[string]interface{}   `json:"update"`
+	Upsert     bool                     `json:"upsert"`
 	Projection map[string]interface{}   `json:"projection"`
 	Sort       map[string]interface{}   `json:"sort"`
 	Limit      int64                    `json:"limit"`
+	Skip       int64                    `json:"skip"`
 	Pipeline   []map[string]interface{} `json:"pipeline"`
 }
 
@@ -39,19 +37,9 @@ func deserializeInput(input interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	jsonStr := strings.TrimSpace(string(jsonData))
-
 	// Deserialize JSON string to BSON
-	var bsonData interface{} // Use interface{} to handle both bson.D and bson.A
-	if strings.HasPrefix(jsonStr, "[") {
-		// Handle as BSON array
-		var bsonArray bson.A
-		err = bson.UnmarshalExtJSON(jsonData, true, &bsonArray)
-		bsonData = bsonArray
-	} else {
-		// Handle as BSON document
-		err = bson.UnmarshalExtJSON(jsonData, true, &bsonData)
-	}
+	var bsonData interface{}
+	err = bson.UnmarshalExtJSON(jsonData, false, &bsonData)
 	if err != nil {
 		log.Printf("Failed to deserialize input: %v", err)
 		log.Printf("Input JSON: %s", string(jsonData))
@@ -64,7 +52,7 @@ func deserializeInput(input interface{}) (interface{}, error) {
 // Helper function to serialize outgoing data
 func serializeOutput(output interface{}) (interface{}, error) {
 	// Serialize BSON data to EJSON
-	ejsonBytes, err := bson.MarshalExtJSON(output, true, true)
+	ejsonBytes, err := bson.MarshalExtJSON(output, false, false)
 	if err != nil {
 		return nil, err
 	}
@@ -76,81 +64,6 @@ func serializeOutput(output interface{}) (interface{}, error) {
 	}
 
 	return jsonData, nil
-}
-
-func preprocessFilter(filter map[string]interface{}) (map[string]interface{}, error) {
-	for key, value := range filter {
-		switch v := value.(type) {
-		case map[string]interface{}:
-			// Check for $oid and $date keys in the nested map
-			if oid, ok := v["$oid"]; ok {
-				// Convert $oid to primitive.ObjectID
-				objectID, err := primitive.ObjectIDFromHex(oid.(string))
-				if err != nil {
-					return nil, err
-				}
-				filter[key] = objectID // Replace the entire map with the ObjectID
-			} else if date, ok := v["$date"]; ok {
-				// Convert $date to primitive.DateTime
-				switch dateValue := date.(type) {
-				case string:
-					parsedDate, err := time.Parse(time.RFC3339, dateValue)
-					if err != nil {
-						return nil, err
-					}
-					filter[key] = primitive.NewDateTimeFromTime(parsedDate) // Replace the entire map with the DateTime
-				case float64: // Handle timestamp in milliseconds
-					filter[key] = primitive.NewDateTimeFromTime(time.UnixMilli(int64(dateValue)))
-				default:
-					return nil, fmt.Errorf("invalid $date value: %v", date)
-				}
-			} else {
-				// Recursively preprocess nested objects
-				processedValue, err := preprocessFilter(v)
-				if err != nil {
-					return nil, err
-				}
-				filter[key] = processedValue
-			}
-		case []interface{}:
-			// Handle arrays (e.g., for $in, $nin, etc.)
-			for i, item := range v {
-				switch item := item.(type) {
-				case map[string]interface{}:
-					// Check for $oid and $date in array items
-					if oid, ok := item["$oid"]; ok {
-						objectID, err := primitive.ObjectIDFromHex(oid.(string))
-						if err != nil {
-							return nil, err
-						}
-						v[i] = objectID // Replace the map with the ObjectID
-					} else if date, ok := item["$date"]; ok {
-						switch dateValue := date.(type) {
-						case string:
-							parsedDate, err := time.Parse(time.RFC3339, dateValue)
-							if err != nil {
-								return nil, err
-							}
-							v[i] = primitive.NewDateTimeFromTime(parsedDate) // Replace the map with the DateTime
-						case float64: // Handle timestamp in milliseconds
-							v[i] = primitive.NewDateTimeFromTime(time.UnixMilli(int64(dateValue)))
-						default:
-							return nil, fmt.Errorf("invalid $date value: %v", date)
-						}
-					} else {
-						// Recursively preprocess nested objects in the array
-						processedItem, err := preprocessFilter(item)
-						if err != nil {
-							return nil, err
-						}
-						v[i] = processedItem
-					}
-				}
-			}
-			filter[key] = v
-		}
-	}
-	return filter, nil
 }
 
 // InsertOne handles document insertion
@@ -232,38 +145,21 @@ func FindOne(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Log the raw filter
-	// log.Printf("Raw Filter: %+v", doc.Filter)
-
-	// Preprocess the filter
-	preprocessedFilter, err := preprocessFilter(doc.Filter)
+	deserializedFilter, err := deserializeInput(doc.Filter)
 	if err != nil {
-		log.Printf("Failed to preprocess filter: %v", err)
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to preprocess filter", "details": err.Error()})
+		log.Printf("Failed to deserialize filter: %v", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize filter", "details": err.Error()})
 	}
-
-	// Log the preprocessed filter
-	// log.Printf("Preprocessed Filter: %+v", preprocessedFilter)
-
-	// Preprocess the projection
-	preprocessedProjection, err := preprocessFilter(doc.Projection)
-	if err != nil {
-		log.Printf("Failed to preprocess projection: %v", err)
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to preprocess projection", "details": err.Error()})
-	}
-
-	// Log the preprocessed projection
-	// log.Printf("Preprocessed Projection: %+v", preprocessedProjection)
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
 
-	// Execute the FindOne query with filter and projection
+	findOptions := options.FindOne()
+	if doc.Projection != nil {
+		findOptions.SetProjection(doc.Projection)
+	}
+
 	var result bson.M
-	err = collection.FindOne(
-		context.Background(),
-		preprocessedFilter,
-		options.FindOne().SetProjection(preprocessedProjection),
-	).Decode(&result)
+	err = collection.FindOne(context.Background(), deserializedFilter, findOptions).Decode(&result)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return c.Status(fiber.StatusOK).JSON(fiber.Map{"document": nil})
@@ -272,12 +168,11 @@ func FindOne(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Wrap the result in a map to serialize
+	// Wrap and serialize the result
 	wrappedResult := map[string]interface{}{
 		"document": result,
 	}
 
-	// Serialize the result before returning
 	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
 		log.Printf("Failed to serialize result: %v", err)
@@ -295,59 +190,45 @@ func Find(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Log the raw filter
-	// log.Printf("Raw Filter: %+v", doc.Filter)
-
-	// Preprocess the filter
-	preprocessedFilter, err := preprocessFilter(doc.Filter)
+	deserializedFilter, err := deserializeInput(doc.Filter)
 	if err != nil {
-		log.Printf("Failed to preprocess filter: %v", err)
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to preprocess filter", "details": err.Error()})
+		log.Printf("Failed to deserialize filter: %v", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize filter", "details": err.Error()})
 	}
-
-	// Log the preprocessed filter
-	// log.Printf("Preprocessed Filter: %+v", preprocessedFilter)
-
-	// Preprocess the projection
-	preprocessedProjection, err := preprocessFilter(doc.Projection)
-	if err != nil {
-		log.Printf("Failed to preprocess projection: %v", err)
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to preprocess projection", "details": err.Error()})
-	}
-
-	// Log the preprocessed projection
-	// log.Printf("Preprocessed Projection: %+v", preprocessedProjection)
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
 
-	// Execute the Find query with filter and projection
-	cursor, err := collection.Find(
-		context.Background(),
-		preprocessedFilter,
-		options.Find().SetProjection(preprocessedProjection),
-	)
+	findOptions := options.Find()
+	if doc.Projection != nil {
+		findOptions.SetProjection(doc.Projection)
+	}
+	if doc.Sort != nil {
+		findOptions.SetSort(doc.Sort)
+	}
+	if doc.Limit > 0 {
+		findOptions.SetLimit(doc.Limit)
+	}
+	if doc.Skip > 0 {
+		findOptions.SetSkip(doc.Skip)
+	}
+
+	cursor, err := collection.Find(context.Background(), deserializedFilter, findOptions)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return c.Status(fiber.StatusOK).JSON(fiber.Map{"document": nil})
-		}
 		log.Printf("Error executing Find: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	defer cursor.Close(context.Background())
 
-	// Decode the results into a slice
-	var results []bson.M
+	results := make([]bson.M, 0)
 	if err := cursor.All(context.Background(), &results); err != nil {
 		log.Printf("Error decoding results: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to decode results"})
 	}
 
-	// Wrap the results in a map to serialize
 	wrappedResult := map[string]interface{}{
 		"documents": results,
 	}
 
-	// Serialize the result before returning
 	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
 		log.Printf("Failed to serialize result: %v", err)
@@ -364,7 +245,6 @@ func UpdateOne(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Deserialize the filter and update
 	deserializedFilter, err := deserializeInput(doc.Filter)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize filter"})
@@ -376,17 +256,22 @@ func UpdateOne(c *fiber.Ctx) error {
 	}
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
-	result, err := collection.UpdateOne(context.Background(), deserializedFilter, deserializedUpdate)
+	opts := options.Update()
+	if doc.Upsert {
+		opts.SetUpsert(true)
+	}
+	result, err := collection.UpdateOne(context.Background(), deserializedFilter, deserializedUpdate, opts)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Wrap the result in a map to serialize
 	wrappedResult := map[string]interface{}{
-		"result": result,
+		"upsertedId":    result.UpsertedID,
+		"upsertedCount": result.UpsertedCount,
+		"modifiedCount": result.ModifiedCount,
+		"matchedCount":  result.MatchedCount,
 	}
 
-	// Serialize the result before returning
 	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
@@ -402,7 +287,6 @@ func UpdateMany(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Deserialize the filter and update
 	deserializedFilter, err := deserializeInput(doc.Filter)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize filter"})
@@ -414,17 +298,20 @@ func UpdateMany(c *fiber.Ctx) error {
 	}
 
 	collection := db.GetCollection(doc.Database, doc.Collection)
-	result, err := collection.UpdateMany(context.Background(), deserializedFilter, deserializedUpdate)
+	opts := options.Update()
+	if doc.Upsert {
+		opts.SetUpsert(true)
+	}
+	result, err := collection.UpdateMany(context.Background(), deserializedFilter, deserializedUpdate, opts)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Wrap the result in a map to serialize
 	wrappedResult := map[string]interface{}{
-		"result": result,
+		"modifiedCount": result.ModifiedCount,
+		"matchedCount":  result.MatchedCount,
 	}
 
-	// Serialize the result before returning
 	serializedResult, err := serializeOutput(wrappedResult)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to serialize result"})
@@ -514,8 +401,6 @@ func Aggregate(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to deserialize pipeline", "details": err.Error()})
 	}
 
-	// log.Printf("Deserialized Pipeline: %+v", deserializedPipeline)
-
 	collection := db.GetCollection(doc.Database, doc.Collection)
 
 	// Execute the aggregation
@@ -526,16 +411,12 @@ func Aggregate(c *fiber.Ctx) error {
 	}
 	defer cursor.Close(context.Background())
 
-	// Read the results
-	var results []bson.M
+	results := make([]bson.M, 0)
 	if err = cursor.All(context.Background(), &results); err != nil {
 		log.Printf("Error reading aggregation results: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to read aggregation results", "details": err.Error()})
 	}
 
-	// log.Printf("Aggregation Results: %+v", results)
-
-	// Wrap the results in a map to serialize
 	wrappedResults := map[string]interface{}{
 		"documents": results,
 	}
